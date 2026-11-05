@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Quick Launcher",
+    "description": "Start the workspace's launch scripts from the conversation header and let the agent read their runtime logs."
+  }
+}

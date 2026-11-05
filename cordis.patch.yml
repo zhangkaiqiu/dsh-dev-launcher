@@ -1,0 +1,4 @@
+- insert:
+    - id: dev-launcher
+      name: dsh-dev-launcher
+      config: {}

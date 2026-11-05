@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Quick Launcher">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#2f6df6"/>
+  <rect x="14" y="16" width="36" height="32" rx="6" fill="#0b1a3a" opacity="0.35"/>
+  <path d="M24 23.5 36.5 32 24 40.5Z" fill="#ffffff"/>
+  <rect x="38" y="37" width="10" height="3.5" rx="1.75" fill="#cfe0ff"/>
+</svg>
