@@ -803,33 +803,75 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        ctx.effect(installStyles, 'dsh-dev-launcher: styles');
-        const locale = ctx.get?.('locale') ?? ctx.locale;
-        if (locale?.register) {
-          ctx.effect(() => locale.register('dev-launcher', { zh: ZH, en: EN }), 'dsh-dev-launcher: locale');
+        // 激活路径全部兜底：任何一步失败都只记录、不外抛。
+        // cordis 会把 apply 的异常吞成 fiber 的 failed 状态，而 web boot 见到
+        // 任何 failed 都会整体报错，所以这里绝不能让异常逃出去。
+        console.error('[dsh-dev-launcher] apply enter');
+
+        try {
+          ctx.effect(installStyles, 'dsh-dev-launcher: styles');
+        } catch (error) {
+          console.error('[dsh-dev-launcher] styles failed:', error);
         }
-        const translate = locale?.bind ? locale.bind('dev-launcher') : null;
-        ctx.slots.inject('conversation.session.header.utilities', () =>
-          ctx.slots.register(
-            {
-              name: 'conversation.session.header.utilities',
-              id: 'dev-launcher',
-              order: 30,
-              label: () => (translate ? translate('trigger') : ZH.trigger),
-              inject: () => ({
-                t: key => {
-                  try {
-                    const value = translate?.(key);
-                    return typeof value === 'string' && value && value !== key ? value : (ZH[key] ?? key);
-                  } catch {
-                    return ZH[key] ?? key;
-                  }
-                },
-              }),
-            },
-            LauncherEntry,
-          ),
-        );
+
+        // locale 不是必需服务：新版 DSH 对未注入的服务访问可能抛错，取不到就用内置中文。
+        let locale = null;
+        try {
+          locale = (typeof ctx.get === 'function' ? ctx.get('locale') : undefined) ?? ctx.locale ?? null;
+        } catch (error) {
+          console.error('[dsh-dev-launcher] locale unavailable:', error);
+          locale = null;
+        }
+
+        let translate = null;
+        if (locale && typeof locale.bind === 'function') {
+          try {
+            translate = locale.bind('dev-launcher');
+          } catch (error) {
+            console.error('[dsh-dev-launcher] locale.bind failed:', error);
+          }
+        }
+
+        if (locale && typeof locale.register === 'function') {
+          try {
+            ctx.effect(() => {
+              // register 在重复激活（HMR / web boot 重试）时抛 already-has-locale，
+              // 那属于幂等噪音，吞掉即可。
+              const handle = locale.register('dev-launcher', { zh: ZH, en: EN });
+              return typeof handle === 'function' ? handle : () => {};
+            }, 'dsh-dev-launcher: locale');
+          } catch (error) {
+            console.error('[dsh-dev-launcher] locale.register failed:', error);
+          }
+        }
+
+        try {
+          ctx.slots.inject('conversation.session.header.utilities', () =>
+            ctx.slots.register(
+              {
+                name: 'conversation.session.header.utilities',
+                id: 'dev-launcher',
+                order: 30,
+                label: () => (translate ? translate('trigger') : ZH.trigger),
+                inject: () => ({
+                  t: key => {
+                    try {
+                      const value = translate?.(key);
+                      return typeof value === 'string' && value && value !== key ? value : (ZH[key] ?? key);
+                    } catch {
+                      return ZH[key] ?? key;
+                    }
+                  },
+                }),
+              },
+              LauncherEntry,
+            ),
+          );
+        } catch (error) {
+          console.error('[dsh-dev-launcher] slots failed:', error);
+        }
+
+        console.error('[dsh-dev-launcher] apply done');
       },
     };
   },
