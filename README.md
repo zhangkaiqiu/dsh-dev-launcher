@@ -21,13 +21,33 @@
 
 ## 安装
 
-插件必须以 **tarball** 形式安装 —— 不能用 `link:` 或目录依赖。目录依赖会让 Node 把入口 realpath 回源码盘，`peerDependencies` 解析出第二份 `@deepseek-ai/dsh-llm`，宿主的 `instanceof LlmError` 判断失效，所有错误码退化成 `UNKNOWN`。
+从 GitHub 直接装：
+
+```bash
+dsh plugin --profile desktop add github:zhangkaiqiu/dsh-dev-launcher
+```
+
+`desktop` 是桌面版的 profile 名（命令行版用 `web`，改成你自己的 profile）。也可以锁 tag：
+
+```bash
+dsh plugin --profile desktop add github:zhangkaiqiu/dsh-dev-launcher#v0.1.0
+```
+
+更新用 `dsh plugin --profile desktop update dsh-dev-launcher`。装完重启 DSH —— client 半是
+web 插件，刷新页面也能生效。
+
+> `github:` 能装而目录依赖不行：pnpm 会按 `files` 把仓库打成包再硬链接进 profile，入口不会
+> realpath 回源码盘，`peerDependencies` 自然只有一份。
+
+本地开发时仍用 **tarball** 安装 —— 不能用 `link:` 或目录依赖。目录依赖会让 Node 把入口
+realpath 回源码盘，`peerDependencies` 解析出第二份 `@deepseek-ai/dsh-llm`，宿主的
+`instanceof LlmError` 判断失效，所有错误码退化成 `UNKNOWN`。
 
 ```bash
 npm pack          # 生成 dsh-dev-launcher-0.1.0.tgz
 ```
 
-然后用 DSH 的插件管理安装这个 tgz，重启或刷新页面即可。
+然后在 DSH 的插件管理页安装这个 tgz。
 
 ## 使用
 

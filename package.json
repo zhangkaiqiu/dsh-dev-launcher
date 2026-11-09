@@ -4,6 +4,27 @@
   "private": true,
   "type": "module",
   "description": "One-click launch scripts for the current workspace, with logs the conversation can read.",
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dev-server",
+    "launcher",
+    "process",
+    "logs"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhangkaiqiu/dsh-dev-launcher.git"
+  },
+  "homepage": "https://github.com/zhangkaiqiu/dsh-dev-launcher#readme",
+  "bugs": {
+    "url": "https://github.com/zhangkaiqiu/dsh-dev-launcher/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
