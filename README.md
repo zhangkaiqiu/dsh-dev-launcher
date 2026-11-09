@@ -33,8 +33,8 @@ dsh plugin --profile desktop add github:zhangkaiqiu/dsh-dev-launcher
 dsh plugin --profile desktop add github:zhangkaiqiu/dsh-dev-launcher#v0.1.0
 ```
 
-更新用 `dsh plugin --profile desktop update dsh-dev-launcher`。装完重启 DSH —— client 半是
-web 插件，刷新页面也能生效。
+更新用 `dsh plugin --profile desktop update dsh-dev-launcher`（跟 main 时有效；装了 `#v0.1.0`
+这类 tag 的，升级要重新 `add` 新 tag）。装完重启 DSH —— client 半是 web 插件，刷新页面也能生效。
 
 > `github:` 能装而目录依赖不行：pnpm 会按 `files` 把仓库打成包再硬链接进 profile，入口不会
 > realpath 回源码盘，`peerDependencies` 自然只有一份。
