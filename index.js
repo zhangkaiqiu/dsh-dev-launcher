@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createRunner, isAlive, killPidTree } from './lib/runner.js';
+import { ownershipHints, sweepOwned } from './lib/procs.js';
 import { createStore, workspaceKey } from './lib/store.js';
 
 export const name = 'dsh-dev-launcher';
@@ -198,7 +199,6 @@ export function apply(ctx) {
   /** 本次进程启动的子进程 pid，用于退出时清理和下次启动时兜底。 */
   const livePids = new Map();
   const ORPHAN_MAX_AGE = 7 * 24 * 3600 * 1000;
-
   function syncPidFile() {
     const snapshot = {};
     for (const [key, entry] of livePids) snapshot[key] = entry;
@@ -207,7 +207,10 @@ export function apply(ctx) {
       .catch(() => undefined);
   }
 
-  /** 上一个 Host 进程崩溃留下的子进程：能确认活着就清掉（只清理一周内的记录）。 */
+  /**
+   * 上一个 Host 进程崩溃/退出时留下的子进程：能确认活着就清掉（只清理一周内的记录）。
+   * 根进程直接打树；树里断链的那部分（Git Bash 的 exec 会换 pid）按命令行特征补一刀。
+   */
   async function sweepOrphans() {
     let previous;
     try {
@@ -218,13 +221,27 @@ export function apply(ctx) {
     if (!previous || typeof previous !== 'object') return;
     const now = Date.now();
     let cleaned = 0;
-    for (const entry of Object.values(previous)) {
+    for (const [scope, entry] of Object.entries(previous)) {
       const pid = typeof entry === 'number' ? entry : Number(entry?.pid);
       const at = typeof entry === 'object' && entry ? Number(entry.at) : now;
       if (!Number.isInteger(pid) || pid <= 0) continue;
       if (Number.isFinite(at) && now - at > ORPHAN_MAX_AGE) continue;
       if (!isAlive(pid)) continue;
       if (killPidTree(pid)) cleaned += 1;
+
+      const [key, taskId] = String(scope).split('::');
+      const stored = await store.read(key).catch(() => ({ root: undefined, tasks: [] }));
+      const task = stored.tasks.find(item => item.id === taskId);
+      if (!task) continue;
+      const cwd = path.resolve(stored.root ?? key, task.cwd || '.');
+      const swept = sweepOwned({
+        rootPid: pid,
+        // 上一次运行的基线已经不可知：只清父链还能走到那个根进程的部分。
+        baseline: null,
+        since: Number.isFinite(at) ? at : null,
+        hints: ownershipHints(task, cwd),
+      });
+      cleaned += swept.killed.length;
     }
     if (cleaned > 0) console.log(`[dsh-dev-launcher] 清理了 ${cleaned} 个上次运行遗留的进程`);
     await writeFile(pidFile, '{}\n', 'utf8').catch(() => undefined);
@@ -264,7 +281,7 @@ export function apply(ctx) {
     const cwd = taskCwd(workspace, task);
     const logPath = await prepareLogFile(workspace, task);
     const runtime = runner.start({ key: workspace.key, task, cwd, logPath });
-    livePids.set(`${workspace.key}::${taskId}`, { pid: runtime.pid, at: Date.now() });
+    livePids.set(`${workspace.key}::${taskId}`, { pid: runtime.pid, at: runtime.startedAt ?? Date.now() });
     syncPidFile();
     return {
       workspace: workspace.root,
@@ -275,11 +292,17 @@ export function apply(ctx) {
 
   async function stopTask({ directory, taskId }) {
     const workspace = resolveWorkspace(ctx, directory);
-    const stopped = runner.stop(workspace.key, taskId);
+    const stopped = await runner.stop(workspace.key, taskId);
     if (!stopped) throw new Error('该启动项当前没有在运行');
     livePids.delete(`${workspace.key}::${taskId}`);
     syncPidFile();
-    return { workspace: workspace.root, task: runner.get(workspace.key, taskId) };
+    return {
+      workspace: workspace.root,
+      task: runner.get(workspace.key, taskId),
+      /** 断链清理掉的进程数（除了根进程树之外的）。 */
+      swept: stopped.killed.length,
+      remaining: stopped.remaining,
+    };
   }
 
   async function saveTask({ directory, task }) {
@@ -291,7 +314,9 @@ export function apply(ctx) {
   async function deleteTask({ directory, taskId }) {
     const workspace = resolveWorkspace(ctx, directory);
     const runtime = runner.get(workspace.key, taskId);
-    if (runtime?.pid) runner.stop(workspace.key, taskId);
+    if (runtime?.pid) await runner.stop(workspace.key, taskId);
+    livePids.delete(`${workspace.key}::${taskId}`);
+    syncPidFile();
     const removed = await store.deleteTask({ key: workspace.key, taskId });
     if (!removed) throw new Error('启动项不存在');
     return { workspace: workspace.root };
@@ -310,8 +335,10 @@ export function apply(ctx) {
     void mkdir(dir, { recursive: true }).catch(() => undefined);
     void sweepOrphans();
     return () => {
+      // 这里不写 {}：dispose 只打根进程树，Git Bash 断链的子孙打不到，
+      // 要把记录留给下次启动的 sweepOrphans() 按 pidFile 清掉。
       runner.dispose();
-      void writeFile(pidFile, '{}\n', 'utf8').catch(() => undefined);
+      syncPidFile();
     };
   }, 'dsh-dev-launcher: 进程池');
 
@@ -550,7 +577,11 @@ export function apply(ctx) {
         async execute(args, exec) {
           const directory = await directoryForTool(exec);
           const stopped = await stopTask({ directory, taskId: text(args?.taskId) });
-          return { text: `已停止 ${text(args?.taskId)}。` };
+          const swept = stopped.swept > 0 ? `，另外清理了 ${stopped.swept} 个断链残留进程` : '';
+          const remain = stopped.remaining.length > 0
+            ? `。但仍有进程没退出，需要手动处理: ${stopped.remaining.join(', ')}`
+            : '';
+          return { text: `已停止 ${text(args?.taskId)}${swept}${remain}。` };
         },
       }),
     );

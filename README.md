@@ -55,7 +55,7 @@ npm pack          # 生成 dsh-dev-launcher-0.1.0.tgz
 
 1. **+ 新建启动项**，填名称和命令
 2. 点「启动」，日志就在下方展开
-3. 「停止」结束整个进程树（含 npm → cmd → node 这类多层子进程）
+3. 「停止」结束整棵进程树 —— 包括被 `exec` 换过 pid、父子链已经断开的那部分（Git Bash 的 `dev.sh` 很常见）
 
 ### 启动项字段
 
@@ -110,16 +110,19 @@ NODE_ENV=development npm run dev
 - **Host 半** `index.js`：注册 HTTP 路由（同源 `fetch`）与 Agent 工具，负责配置读写、工作区解析、日志文件管理
 - **Client 半** `client.js`：一个挂到 `conversation.session.header.utilities` 槽位的 React 组件，渲染按钮与浮层面板
 - **`lib/runner.js`**：进程池，spawn、按行切分输出、状态机、进程树终止
+- **`lib/procs.js`**：进程枚举与归属判定，停止时负责清掉断链的子孙
 - **`lib/store.js`**：按工作区持久化，串行写入 + 临时文件 rename，损坏文件自动备份
 
-两个 Windows 上的坑值得记一笔：
+三个 Windows 上的坑值得记一笔：
 
 1. `C:\Program Files\Git\bin\bash.exe` 是启动器，它 `_wexecv` 到 `usr\bin\bash.exe` 后就退出。Windows 没有真正的 exec，pid 会变，导致记录下来的 pid 早已作废、`taskkill` 打空。所以直接 spawn `usr\bin\bash.exe`。
 2. `child.on('close')` 要等所有 stdio 管道关闭，孙进程握着管道时永远不触发。所以状态更新必须同时监听 `exit`，并用幂等的收尾函数兜底。
+3. 停止不能只靠 `taskkill /T`：Git Bash 的 `exec npm run dev` 在 Windows 上是「新建进程 + 旧进程退出」，pid 换了、父子链从中间断开，`taskkill /T` 只打得到根进程那一层，dev server 留下来继续占端口。所以启动前记一份全机 pid 基线，停止时把「启动后才出现、父链断在一个后生又已消失的 pid 上、且命令行对得上启动项路径」的进程一并清掉；证据不足的一律不动。
 
 ## 已知限制
 
 - **重装插件会杀掉正在运行的任务**：插件卸载时会 dispose 进程池，顺带终止子进程。
+- 断链清理要靠命令行里的路径特征佐证，对不上的一律不动（宁可少杀），遇到残留请手动结束。
 - 配置只按工作区隔离，没有跨工作区的全局启动项。
 - 没有进程自动重启 / 崩溃拉起。
 
